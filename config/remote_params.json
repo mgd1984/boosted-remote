@@ -1,0 +1,98 @@
+{
+  "project_name": "boosted_remote",
+  "mechanical": {
+    "outer_height_mm": 136.0,
+    "outer_width_top_mm": 54.0,
+    "outer_width_grip_mm": 36.0,
+    "outer_thickness_mm": 20.0,
+    "wall_thickness_mm": 2.2,
+    "split_gap_mm": 0.25,
+    "top_bulb_height_mm": 44.0,
+    "grip_height_mm": 92.0,
+    "pcb_height_mm": 111.0,
+    "pcb_width_top_mm": 40.0,
+    "pcb_width_grip_mm": 28.0,
+    "pcb_bottom_radius_mm": 8.0,
+    "thumbwheel_opening_diameter_mm": 24.0,
+    "thumbwheel_center_z_from_top_mm": 24.0,
+    "thumbwheel_center_x_mm": 11.0,
+    "thumbwheel_diameter_mm": 31.0,
+    "thumbwheel_width_mm": 14.0,
+    "usb_port_width_mm": 8.6,
+    "usb_port_height_mm": 4.2,
+    "led_window_diameter_mm": 2.0,
+    "status_led_pitch_mm": 4.6,
+    "bar_led_pitch_mm": 6.0,
+    "button_hole_diameter_mm": 5.0,
+    "power_button_center_x_mm": 3.0,
+    "power_button_center_z_from_top_mm": 113.051284,
+    "pcb_shell_center_x_mm": 99.0,
+    "pcb_mount_holes": [
+      {
+        "name": "H1",
+        "board_x_mm": 116.0,
+        "board_y_mm": 20.0,
+        "pcb_drill_mm": 2.2,
+        "boss_outer_diameter_mm": 6.4,
+        "head_clearance_diameter_mm": 4.4,
+        "front_counterbore_depth_mm": 1.6
+      },
+      {
+        "name": "H2",
+        "board_x_mm": 83.0,
+        "board_y_mm": 88.0,
+        "pcb_drill_mm": 2.2,
+        "boss_outer_diameter_mm": 6.4,
+        "head_clearance_diameter_mm": 4.4,
+        "front_counterbore_depth_mm": 1.6
+      },
+      {
+        "name": "H3",
+        "board_x_mm": 95.5,
+        "board_y_mm": 112.5,
+        "pcb_drill_mm": 2.2,
+        "boss_outer_diameter_mm": 6.4,
+        "head_clearance_diameter_mm": 4.4,
+        "front_counterbore_depth_mm": 1.6
+      }
+    ]
+  },
+  "mechanical_assumptions": {
+    "pcb_thickness_mm": 1.6,
+    "pcb_cavity_side_clearance_mm": 0.6,
+    "pcb_cavity_depth_clearance_mm": 0.8,
+    "shell_closure_clearance_mm": 0.3,
+    "thumbwheel_radial_clearance_mm": 0.75,
+    "trigger_travel_mm": 7.0,
+    "button_travel_mm": 1.5,
+    "hall_sensor_air_gap_mm": 2.0,
+    "max_component_height_front_mm": 4.5,
+    "max_component_height_rear_mm": 6.0
+  },
+  "electrical": {
+    "battery": "1S LiPo 400-600mAh",
+    "mcu": "ESP32-C3-WROOM-02",
+    "charger": "MCP73831-2-OT",
+    "regulator": "TLV75533PDBV",
+    "hall_sensor": "DRV5055A3xDBZxQ1",
+    "charge_current_ma": 212,
+    "programming_header": "UART_1x06_1.27mm"
+  },
+  "pinout": {
+    "hall_adc": "IO4",
+    "deadman_switch": "IO5",
+    "power_button": "IO6",
+    "buzzer_drive": "IO7",
+    "status_green": "IO8",
+    "status_blue": "IO9",
+    "led_bar_1": "IO10",
+    "led_bar_2": "IO18",
+    "led_bar_3": "IO19",
+    "led_bar_4": "IO3",
+    "led_bar_5": "IO2",
+    "battery_sense": "IO1",
+    "boot": "IO0",
+    "uart_rx": "IO20/RXD",
+    "uart_tx": "IO21/TXD"
+  }
+}
