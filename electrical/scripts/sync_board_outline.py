@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import argparse
 import re
+import sys
 import uuid
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from mechanical.cad.params import load_project_data
-from mechanical.cad.reference import horizontal_polygon_span, user1_contour_points
+from mechanical.cad.reference import horizontal_polygon_span, preferred_pcb_contour_points, user_layer_contour_points
 
 
 EDGE_CUTS_WIDTH_MM = 0.15
-BOARD_CONTOUR_INSET_MM = 1.0
+USER_LAYER_CONTOUR_INSET_MM = 1.0
 
 # Empirical live-board relief tweaks after the shell/body contour is inset.
 # The traced silhouette slightly over-pinches the USB tail and right LED shoulder
@@ -22,6 +28,39 @@ LIVE_VERTEX_ADJUSTMENTS_MM: dict[tuple[float, float], tuple[float, float]] = {
     (73.719224, 163.840469): (73.339224, 163.840469),
     (74.923075, 164.468523): (74.443075, 164.468523),
 }
+
+
+def parse_args(repo_root: Path) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Sync the live board outline from a source contour layer.")
+    parser.add_argument(
+        "--board",
+        type=Path,
+        default=repo_root / "electrical" / "kicad" / "boosted_remote.kicad_pcb",
+        help="Board file to update.",
+    )
+    parser.add_argument(
+        "--source",
+        choices=("user-layer", "pcb-svg"),
+        default="user-layer",
+        help="Contour source to convert into Edge.Cuts.",
+    )
+    parser.add_argument(
+        "--source-layer",
+        default="User.1",
+        help="Graphic layer containing the contour polygon when --source=user-layer.",
+    )
+    parser.add_argument(
+        "--skip-live-adjustments",
+        action="store_true",
+        help="Disable the board-specific relief tweaks normally applied to the default User.1 contour.",
+    )
+    parser.add_argument(
+        "--inset-mm",
+        type=float,
+        default=None,
+        help="Optional inset override. By default, user-layer contours inset by 1.0 mm and pcb-svg contours inset by 0.0 mm.",
+    )
+    return parser.parse_args()
 
 
 def _format_edge_line(start: tuple[float, float], end: tuple[float, float]) -> str:
@@ -38,7 +77,7 @@ def _format_edge_line(start: tuple[float, float], end: tuple[float, float]) -> s
         "\t)"
     )
 
-def _inset_contour(points: tuple[tuple[float, float], ...]) -> list[tuple[float, float]]:
+def _inset_contour(points: tuple[tuple[float, float], ...], inset_mm: float) -> list[tuple[float, float]]:
     inset: list[tuple[float, float]] = []
     for x_mm, y_mm in points:
         span = horizontal_polygon_span(y_mm, points)
@@ -48,10 +87,18 @@ def _inset_contour(points: tuple[tuple[float, float], ...]) -> list[tuple[float,
         center_x_mm = (span[0] + span[1]) * 0.5
         delta_x_mm = x_mm - center_x_mm
         direction = -1.0 if delta_x_mm < 0 else 1.0
-        inset.append((center_x_mm + direction * max(abs(delta_x_mm) - BOARD_CONTOUR_INSET_MM, 0.6), y_mm))
+        inset.append((center_x_mm + direction * max(abs(delta_x_mm) - inset_mm, 0.6), y_mm))
     if inset[0] != inset[-1]:
         inset.append(inset[0])
     return inset
+
+
+def _source_inset_mm(args: argparse.Namespace) -> float:
+    if args.inset_mm is not None:
+        return args.inset_mm
+    if args.source == "pcb-svg":
+        return 0.0
+    return USER_LAYER_CONTOUR_INSET_MM
 
 
 def _apply_live_vertex_adjustments(points: list[tuple[float, float]], tolerance_mm: float = 1e-6) -> list[tuple[float, float]]:
@@ -99,20 +146,28 @@ def _remove_existing_edge_cuts(board_text: str) -> str:
     return "\n".join(kept_blocks) + "\n"
 
 
+def _source_contour_points(repo_root: Path, args: argparse.Namespace) -> tuple[tuple[float, float], ...]:
+    if args.source == "pcb-svg":
+        return preferred_pcb_contour_points(repo_root)
+    return user_layer_contour_points(repo_root, args.source_layer)
+
+
 def main() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = REPO_ROOT
+    args = parse_args(repo_root)
     project = load_project_data(repo_root)
-    contour = user1_contour_points(repo_root)
-    inset = _inset_contour(contour)
+    contour = _source_contour_points(repo_root, args)
+    inset = _inset_contour(contour, _source_inset_mm(args))
     live_points = [
         (x_mm + project.layout.offset_x_mm, y_mm + project.layout.offset_y_mm)
         for x_mm, y_mm in inset
     ]
-    live_points = _apply_live_vertex_adjustments(live_points)
+    if args.source == "user-layer" and args.source_layer == "User.1" and not args.skip_live_adjustments:
+        live_points = _apply_live_vertex_adjustments(live_points)
 
     edge_block = "\n".join(_format_edge_line(start, end) for start, end in zip(live_points, live_points[1:]))
 
-    board_path = repo_root / "electrical" / "kicad" / "boosted_remote.kicad_pcb"
+    board_path = args.board
     board_text = board_path.read_text(encoding="utf-8")
     board_text = _remove_existing_edge_cuts(board_text)
 
