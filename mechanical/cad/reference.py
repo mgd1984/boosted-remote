@@ -11,7 +11,8 @@ from .kicad_layout import load_live_board_layout
 from .params import MechanicalParams
 
 
-SVG_OUTLINE_PATH = Path("mechanical/references/boosted_remote_outline_smooth_pixels.svg")
+SHELL_SVG_OUTLINE_PATH = Path("mechanical/references/boosted_remote_outline_smooth_pixels.svg")
+PCB_SVG_OUTLINE_PATH = Path("mechanical/references/boosted_remote_pcb_outline_target.svg")
 
 
 @lru_cache(maxsize=4)
@@ -84,8 +85,8 @@ def _edge_cuts_outline_points(board_text: str, offset_x_mm: float, offset_y_mm: 
     return tuple(points)
 
 
-@lru_cache(maxsize=4)
-def user1_contour_points(repo_root: Path) -> tuple[tuple[float, float], ...]:
+@lru_cache(maxsize=8)
+def user_layer_contour_points(repo_root: Path, layer_name: str = "User.1") -> tuple[tuple[float, float], ...]:
     params_path = repo_root / "config" / "remote_params.json"
     mechanical = json.loads(params_path.read_text(encoding="utf-8"))["mechanical"]
     layout = load_live_board_layout(repo_root, mechanical)
@@ -104,7 +105,7 @@ def user1_contour_points(repo_root: Path) -> tuple[tuple[float, float], ...]:
             depth = line.count("(") - line.count(")")
             if depth <= 0:
                 candidate = "\n".join(current)
-                if '(layer "User.1")' in candidate:
+                if f'(layer "{layer_name}")' in candidate:
                     block_lines = current
                     break
                 in_block = False
@@ -115,13 +116,13 @@ def user1_contour_points(repo_root: Path) -> tuple[tuple[float, float], ...]:
             depth += line.count("(") - line.count(")")
             if depth <= 0:
                 candidate = "\n".join(current)
-                if '(layer "User.1")' in candidate:
+                if f'(layer "{layer_name}")' in candidate:
                     block_lines = current
                     break
                 in_block = False
 
     if not block_lines:
-        raise RuntimeError("Unable to locate User.1 contour polygon in electrical/kicad/boosted_remote.kicad_pcb")
+        raise RuntimeError(f"Unable to locate {layer_name} contour polygon in electrical/kicad/boosted_remote.kicad_pcb")
 
     points = [
         (float(x_mm) - layout.offset_x_mm, float(y_mm) - layout.offset_y_mm)
@@ -129,10 +130,15 @@ def user1_contour_points(repo_root: Path) -> tuple[tuple[float, float], ...]:
         for x_mm, y_mm in re.findall(r"\(xy\s+([-0-9.]+)\s+([-0-9.]+)\)", line)
     ]
     if len(points) < 4:
-        raise RuntimeError("User.1 contour polygon does not contain enough points")
+        raise RuntimeError(f"{layer_name} contour polygon does not contain enough points")
     if points[0] != points[-1]:
         points.append(points[0])
     return tuple(points)
+
+
+@lru_cache(maxsize=4)
+def user1_contour_points(repo_root: Path) -> tuple[tuple[float, float], ...]:
+    return user_layer_contour_points(repo_root, "User.1")
 
 
 @lru_cache(maxsize=4)
@@ -168,9 +174,7 @@ def _parse_svg_path_points(path_data: str) -> tuple[tuple[float, float], ...]:
     return tuple(points)
 
 
-@lru_cache(maxsize=4)
-def svg_outline_points(repo_root: Path) -> tuple[tuple[float, float], ...] | None:
-    svg_path = repo_root / SVG_OUTLINE_PATH
+def _svg_outline_points(svg_path: Path) -> tuple[tuple[float, float], ...] | None:
     if not svg_path.exists():
         return None
     root = ET.fromstring(svg_path.read_text(encoding="utf-8"))
@@ -181,6 +185,16 @@ def svg_outline_points(repo_root: Path) -> tuple[tuple[float, float], ...] | Non
     if not path_data:
         raise RuntimeError(f"SVG path in {svg_path} does not contain path data")
     return _parse_svg_path_points(path_data)
+
+
+@lru_cache(maxsize=4)
+def svg_outline_points(repo_root: Path) -> tuple[tuple[float, float], ...] | None:
+    return _svg_outline_points(repo_root / SHELL_SVG_OUTLINE_PATH)
+
+
+@lru_cache(maxsize=4)
+def pcb_svg_outline_points(repo_root: Path) -> tuple[tuple[float, float], ...] | None:
+    return _svg_outline_points(repo_root / PCB_SVG_OUTLINE_PATH)
 
 
 @lru_cache(maxsize=4)
@@ -203,11 +217,55 @@ def svg_shell_contour_points(repo_root: Path, outer_height_mm: float) -> tuple[t
     return tuple(scaled)
 
 
+def _scaled_outline_points(
+    source_points: tuple[tuple[float, float], ...],
+    reference_points: tuple[tuple[float, float], ...],
+) -> tuple[tuple[float, float], ...]:
+    src_min_x_mm = min(x_mm for x_mm, _ in source_points)
+    src_max_x_mm = max(x_mm for x_mm, _ in source_points)
+    src_min_y_mm = min(y_mm for _, y_mm in source_points)
+    src_max_y_mm = max(y_mm for _, y_mm in source_points)
+    ref_min_x_mm = min(x_mm for x_mm, _ in reference_points)
+    ref_max_x_mm = max(x_mm for x_mm, _ in reference_points)
+    ref_min_y_mm = min(y_mm for _, y_mm in reference_points)
+    ref_max_y_mm = max(y_mm for _, y_mm in reference_points)
+
+    source_height_mm = src_max_y_mm - src_min_y_mm
+    reference_height_mm = ref_max_y_mm - ref_min_y_mm
+    if source_height_mm <= 0:
+        raise RuntimeError("PCB SVG outline has invalid height")
+
+    scale = reference_height_mm / source_height_mm
+    src_center_x_mm = (src_min_x_mm + src_max_x_mm) * 0.5
+    src_center_y_mm = (src_min_y_mm + src_max_y_mm) * 0.5
+    ref_center_x_mm = (ref_min_x_mm + ref_max_x_mm) * 0.5
+    ref_center_y_mm = (ref_min_y_mm + ref_max_y_mm) * 0.5
+
+    scaled = [
+        (
+            (x_mm - src_center_x_mm) * scale + ref_center_x_mm,
+            (y_mm - src_center_y_mm) * scale + ref_center_y_mm,
+        )
+        for x_mm, y_mm in source_points
+    ]
+    if scaled[0] != scaled[-1]:
+        scaled.append(scaled[0])
+    return tuple(scaled)
+
+
 def preferred_shell_contour_points(repo_root: Path, mech: MechanicalParams) -> tuple[tuple[float, float], ...]:
     svg_points = svg_shell_contour_points(repo_root, mech.outer_height_mm)
     if svg_points is not None:
         return svg_points
     return user1_shell_contour_points(repo_root, mech.pcb_shell_center_x_mm)
+
+
+@lru_cache(maxsize=4)
+def preferred_pcb_contour_points(repo_root: Path) -> tuple[tuple[float, float], ...]:
+    pcb_svg_points = pcb_svg_outline_points(repo_root)
+    if pcb_svg_points is None:
+        return user1_contour_points(repo_root)
+    return _scaled_outline_points(pcb_svg_points, user1_contour_points(repo_root))
 
 
 def horizontal_polygon_span(y_mm: float, polygon: tuple[tuple[float, float], ...], tolerance: float = 1e-6) -> tuple[float, float] | None:
